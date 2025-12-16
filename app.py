@@ -251,4 +251,181 @@ with tab_teknik:
     # =========================
     # TABEL RINGKAS (HANYA SATU)
     # =========================
-    st.markdown("### Daftar
+    st.markdown("### Daftar Permintaan")
+
+    show_df = df[[
+        "request_id", "tanggal_upload", "no_spbj_kapal", "judul_permintaan",
+        "evaluasi_status", "surat_usulan_tanggal", "surat_persetujuan_tanggal",
+        "sp2bj_check", "po_check", "terbayar_check",
+        "supply_status", "last_update"
+    ]].copy()
+
+    # Rename untuk tampilan
+    show_df = show_df.rename(columns={
+        "request_id": "REQUEST_ID",
+        "tanggal_upload": "TANGGAL_UPLOAD",
+        "no_spbj_kapal": "NO_SPBJ_KAPAL",
+        "judul_permintaan": "JUDUL_PERMINTAAN",
+        "evaluasi_status": "EVALUASI_STATUS",
+        "surat_usulan_tanggal": "SURAT_USULAN_TANGGAL",
+        "surat_persetujuan_tanggal": "SURAT_PERSETUJUAN_TANGGAL",
+        "sp2bj_check": "SP2BJ_CHECK",
+        "po_check": "PO_CHECK",
+        "terbayar_check": "TERBAYAR_CHECK",
+        "supply_status": "SUPPLY_STATUS",
+        "last_update": "LAST_UPDATE",
+    })
+
+    st.dataframe(show_df, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    st.markdown("### Update Progress (pilih 1 REQUEST_ID)")
+
+    rid_list = df["request_id"].astype(str).tolist()
+    selected_rid = st.selectbox("REQUEST_ID", rid_list)
+
+    row = df[df["request_id"].astype(str) == str(selected_rid)].iloc[0].to_dict()
+
+    # Ambil file lampiran (kadang filenya nyasar ke evaluasi_status dari data kamu)
+    files_list = parse_files_any(
+        row.get("files"),
+        row.get("files_json"),
+        row.get("FILES_JSON"),
+        row.get("evaluasi_status")  # fallback kalau ternyata ini berisi JSON file
+    )
+
+    # DETAIL INFO
+    colA, colB = st.columns([1.2, 1])
+
+    with colA:
+        st.write("**Tanggal Upload:**", row.get("tanggal_upload", ""))
+        st.write("**No SPBJ Kapal:**", row.get("no_spbj_kapal", ""))
+        st.write("**Judul:**", row.get("judul_permintaan", ""))
+
+        st.markdown("**File Lampiran (Download):**")
+        if not files_list:
+            st.caption("(Tidak ada file / belum terbaca)")
+        else:
+            for f in files_list:
+                name = f.get("name", "file")
+                url = f.get("downloadUrl") or f.get("viewUrl")
+                if url:
+                    st.markdown(f"- [{name}]({url})")
+                else:
+                    # kalau cuma ada fileId
+                    fid = f.get("fileId") or f.get("id")
+                    if fid:
+                        st.markdown(f"- [{name}](https://drive.google.com/uc?export=download&id={fid})")
+                    else:
+                        st.markdown(f"- {name}")
+
+    # INPUT FORM UPDATE
+    with colB:
+        st.markdown("#### 1) Evaluasi Cabang")
+        eval_status_current = row.get("evaluasi_status") or "None"
+        if eval_status_current not in ["None", "In Process", "Done"]:
+            eval_status_current = "None"
+
+        eval_status = st.selectbox(
+            "Status Evaluasi",
+            ["None", "In Process", "Done"],
+            index=["None", "In Process", "Done"].index(eval_status_current)
+        )
+
+        eval_tgl = st.date_input(
+            "Tanggal Evaluasi (isi saat selesai/ada progress)",
+            value=parse_date_value(row.get("evaluasi_tanggal")) or date.today(),
+            key="eval_tgl"
+        )
+
+        st.markdown("#### 2) Surat Usulan ke Pusat")
+        usulan_tgl = st.date_input(
+            "Tanggal Surat Usulan",
+            value=parse_date_value(row.get("surat_usulan_tanggal")) or date.today(),
+            key="usulan_tgl"
+        )
+
+        st.markdown("#### 3) Surat Persetujuan Pusat")
+        setuju_tgl = st.date_input(
+            "Tanggal Surat Persetujuan",
+            value=parse_date_value(row.get("surat_persetujuan_tanggal")) or date.today(),
+            key="setuju_tgl"
+        )
+
+    st.markdown("#### 4) Administrasi Cabang")
+    c1, c2, c3 = st.columns(3)
+
+    sp2bj_check = to_bool(row.get("sp2bj_check"))
+    po_check = to_bool(row.get("po_check"))
+    terbayar_check = to_bool(row.get("terbayar_check"))
+
+    with c1:
+        sp2bj_check_new = st.checkbox("SP2B/J", value=sp2bj_check)
+        sp2bj_tgl = st.date_input(
+            "Tanggal SP2B/J",
+            value=parse_date_value(row.get("sp2bj_tanggal")) or date.today(),
+            key="sp2bj_tgl"
+        )
+    with c2:
+        po_check_new = st.checkbox("PO", value=po_check)
+        po_tgl = st.date_input(
+            "Tanggal PO",
+            value=parse_date_value(row.get("po_tanggal")) or date.today(),
+            key="po_tgl"
+        )
+    with c3:
+        terbayar_check_new = st.checkbox("Terbayar", value=terbayar_check)
+        terbayar_tgl = st.date_input(
+            "Tanggal Terbayar",
+            value=parse_date_value(row.get("terbayar_tanggal")) or date.today(),
+            key="terbayar_tgl"
+        )
+
+    st.markdown("#### 5) Supply Barang")
+    supply_status_current = row.get("supply_status") or "None"
+    if supply_status_current not in ["None", "In Process", "Done"]:
+        supply_status_current = "None"
+
+    supply_status = st.selectbox(
+        "Status Supply",
+        ["None", "In Process", "Done"],
+        index=["None", "In Process", "Done"].index(supply_status_current)
+    )
+
+    supply_tgl = st.date_input(
+        "Tanggal Supply (isi saat selesai/ada progress)",
+        value=parse_date_value(row.get("supply_tanggal")) or date.today(),
+        key="supply_tgl"
+    )
+
+    st.markdown("---")
+    if st.button("💾 Simpan Update"):
+        fields = {
+            "evaluasi_status": eval_status,
+            "evaluasi_tanggal": iso_or_empty(eval_tgl),
+
+            "surat_usulan_tanggal": iso_or_empty(usulan_tgl),
+            "surat_persetujuan_tanggal": iso_or_empty(setuju_tgl),
+
+            "sp2bj_check": bool(sp2bj_check_new),
+            "sp2bj_tanggal": iso_or_empty(sp2bj_tgl) if sp2bj_check_new else "",
+
+            "po_check": bool(po_check_new),
+            "po_tanggal": iso_or_empty(po_tgl) if po_check_new else "",
+
+            "terbayar_check": bool(terbayar_check_new),
+            "terbayar_tanggal": iso_or_empty(terbayar_tgl) if terbayar_check_new else "",
+
+            "supply_status": supply_status,
+            "supply_tanggal": iso_or_empty(supply_tgl),
+        }
+
+        try:
+            res2 = api_update_request(selected_rid, fields)
+            if res2.get("ok"):
+                st.success("✅ Update tersimpan.")
+                st.rerun()
+            else:
+                st.error(f"Gagal: {res2.get('error')}")
+        except Exception as e:
+            st.error(f"Error simpan: {e}")
