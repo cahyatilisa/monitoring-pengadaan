@@ -1,6 +1,6 @@
 import base64
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 
 import pandas as pd
 import requests
@@ -23,11 +23,8 @@ if not TEKNIK_KEY:
     st.warning("TEKNIK_KEY belum diisi di Streamlit Secrets. Tab teknik tidak akan bisa login.")
 
 
-STATUS_OPTIONS = ["None", "In Process", "Done"]
-
-
 # =========================
-# API
+# HELPERS
 # =========================
 def post_api(payload: dict) -> dict:
     r = requests.post(WEBAPP_URL, json=payload, timeout=60)
@@ -35,76 +32,56 @@ def post_api(payload: dict) -> dict:
     return r.json()
 
 
-def api_list_requests() -> pd.DataFrame:
-    res = post_api({"action": "list_requests", "key": TEKNIK_KEY})
-    if not res.get("ok"):
-        raise RuntimeError(res.get("error", "API list_requests gagal"))
-
-    rows = res.get("data") or res.get("rows") or []
-    df = pd.DataFrame(rows)
-    return df
-
-
-def api_update_request(request_id: str, fields: dict) -> dict:
+def parse_date_value(x):
     """
-    Ada backend yang pakai "fields", ada yang pakai "patch".
-    Kita coba "fields" dulu, kalau gagal baru coba "patch".
-    """
-    payload_fields = {
-        "action": "update_request",
-        "key": TEKNIK_KEY,
-        "request_id": request_id,
-        "fields": fields,
-    }
-    res = post_api(payload_fields)
-    if res.get("ok"):
-        return res
-
-    # fallback: beberapa versi backend pakai "patch"
-    payload_patch = {
-        "action": "update_request",
-        "key": TEKNIK_KEY,
-        "request_id": request_id,
-        "patch": fields,
-    }
-    return post_api(payload_patch)
-
-
-# =========================
-# HELPERS
-# =========================
-def parse_date_safe(x):
-    """
-    Terima: '2025-12-15T10:00:00.000Z' / '2025-12-15' / '' / None / False
+    Terima:
+      - '2025-12-15T10:00:00.000Z'
+      - '2025-12-15'
+      - '' / None / 'None' / False
     Return: date atau None
     """
     if x is None:
         return None
     if isinstance(x, bool):
         return None
-    if isinstance(x, (int, float)):
-        return None
 
     s = str(x).strip()
-    if s == "" or s.lower() == "none":
+    if s == "" or s.lower() == "none" or s.lower() == "nan":
         return None
 
-    # ISO datetime panjang -> ambil YYYY-MM-DD
-    if "T" in s:
-        s = s.split("T")[0]
-
+    # ambil YYYY-MM-DD dari ISO panjang
+    s = s[:10]
     try:
-        return date.fromisoformat(s[:10])
+        return date.fromisoformat(s)
     except Exception:
         return None
 
 
-def iso_or_empty(d: date | None) -> str:
+def iso_or_empty(d):
     return d.isoformat() if d else ""
 
 
-def now_utc_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+def display_date_str(x):
+    """Buat tampilan tabel jadi rapi: ambil 10 char pertama (YYYY-MM-DD) atau kosong."""
+    if x is None:
+        return ""
+    s = str(x).strip()
+    if s == "" or s.lower() in ["none", "false", "nan"]:
+        return ""
+    return s[:10]
+
+
+def clean_status(x):
+    """Normalisasi status jadi salah satu dari: None / In Process / Done."""
+    s = str(x).strip() if x is not None else ""
+    if s == "" or s.lower() in ["none", "nan", "false"]:
+        return "None"
+    if s.lower() in ["in process", "in_progress", "progress", "process"]:
+        return "In Process"
+    if s.lower() in ["done", "finish", "finished", "completed", "complete"]:
+        return "Done"
+    # fallback: kalau ada nilai aneh, tampilkan apa adanya tapi jangan bikin crash
+    return s
 
 
 def parse_files_any(*values):
@@ -112,7 +89,6 @@ def parse_files_any(*values):
     Mencoba membaca daftar file dari beberapa kemungkinan kolom:
     - list of dicts
     - string JSON list/dict
-    Return list[dict]
     """
     for v in values:
         if not v:
@@ -136,31 +112,46 @@ def parse_files_any(*values):
     return []
 
 
-def normalize_cols_upper(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df.columns = [str(c).strip().upper() for c in df.columns]
+def api_list_requests() -> pd.DataFrame:
+    res = post_api({"action": "list_requests", "key": TEKNIK_KEY})
+    if not res.get("ok"):
+        raise RuntimeError(res.get("error", "API list_requests gagal"))
+
+    rows = res.get("data") or res.get("rows") or []
+    df = pd.DataFrame(rows)
     return df
 
 
-def ensure_cols(df: pd.DataFrame, cols: list[str], default=""):
-    for c in cols:
-        if c not in df.columns:
-            df[c] = default
-    return df
+def api_update_request(request_id: str, fields: dict) -> dict:
+    return post_api({
+        "action": "update_request",
+        "key": TEKNIK_KEY,
+        "request_id": request_id,
+        "fields": fields
+    })
 
 
-def clean_date_cell_for_table(x):
+def status_with_optional_date_ui(title: str, key_prefix: str, current_status: str, current_date_value):
     """
-    Untuk tampilan tabel: kalau bool/None/"None" => kosong.
+    UI standar: selectbox status (None/In Process/Done) + tanggal (muncul hanya kalau status != None)
+    Return: (status_str, date_or_none)
     """
-    if x is None:
-        return ""
-    if isinstance(x, bool):
-        return ""
-    s = str(x).strip()
-    if s == "" or s.lower() == "none":
-        return ""
-    return s
+    st.markdown(f"**{title}**")
+
+    status = st.selectbox(
+        f"Status {title}",
+        ["None", "In Process", "Done"],
+        index=["None", "In Process", "Done"].index(clean_status(current_status)) if clean_status(current_status) in ["None", "In Process", "Done"] else 0,
+        key=f"{key_prefix}_status",
+    )
+
+    if status == "None":
+        st.caption("Tanggal: (kosong)")
+        return status, None
+
+    dt = parse_date_value(current_date_value) or date.today()
+    dt = st.date_input(f"Tanggal {title}", value=dt, key=f"{key_prefix}_tgl")
+    return status, dt
 
 
 # =========================
@@ -263,12 +254,13 @@ with tab_teknik:
         st.info("Belum ada permintaan masuk.")
         st.stop()
 
-    df = normalize_cols_upper(df)
+    # Normalisasi kolom -> UPPERCASE agar konsisten dengan nama kolom Sheet
+    df.columns = [str(c).strip().upper() for c in df.columns]
 
-    # kolom yang kita gunakan (akan dibuat kalau belum ada)
-    required_cols = [
+    expected_cols = [
         "REQUEST_ID", "TANGGAL_UPLOAD", "NO_SPBJ_KAPAL", "JUDUL_PERMINTAAN",
         "FILES", "FILES_JSON",
+
         "EVALUASI_STATUS", "EVALUASI_TANGGAL",
 
         "SURAT_USULAN_STATUS", "SURAT_USULAN_TANGGAL",
@@ -279,22 +271,14 @@ with tab_teknik:
         "TERBAYAR_STATUS", "TERBAYAR_TANGGAL",
 
         "SUPPLY_STATUS", "SUPPLY_TANGGAL",
-
         "LAST_UPDATE",
     ]
-    df = ensure_cols(df, required_cols, default="")
-
-    # Default status kalau kosong
-    for col in [
-        "EVALUASI_STATUS",
-        "SURAT_USULAN_STATUS", "SURAT_PERSETUJUAN_STATUS",
-        "SP2BJ_STATUS", "PO_STATUS", "TERBAYAR_STATUS",
-        "SUPPLY_STATUS",
-    ]:
-        df[col] = df[col].apply(lambda x: x if str(x).strip() in STATUS_OPTIONS else ("None" if str(x).strip() == "" else x))
+    for c in expected_cols:
+        if c not in df.columns:
+            df[c] = ""
 
     # =========================
-    # TABEL RINGKAS (SATU KALI)
+    # TABEL RINGKAS
     # =========================
     st.markdown("### Daftar Permintaan")
 
@@ -307,20 +291,25 @@ with tab_teknik:
         "PO_STATUS", "PO_TANGGAL",
         "TERBAYAR_STATUS", "TERBAYAR_TANGGAL",
         "SUPPLY_STATUS", "SUPPLY_TANGGAL",
-        "LAST_UPDATE",
+        "LAST_UPDATE"
     ]].copy()
 
-    # rapihin tampilan tanggal (hindari False / None tampil)
-    date_cols = [
-        "TANGGAL_UPLOAD",
-        "EVALUASI_TANGGAL",
+    # rapikan tampilan tanggal/status
+    for c in [
+        "TANGGAL_UPLOAD", "EVALUASI_TANGGAL",
         "SURAT_USULAN_TANGGAL", "SURAT_PERSETUJUAN_TANGGAL",
         "SP2BJ_TANGGAL", "PO_TANGGAL", "TERBAYAR_TANGGAL",
-        "SUPPLY_TANGGAL",
-        "LAST_UPDATE",
-    ]
-    for c in date_cols:
-        show_df[c] = show_df[c].apply(clean_date_cell_for_table)
+        "SUPPLY_TANGGAL", "LAST_UPDATE"
+    ]:
+        show_df[c] = show_df[c].apply(display_date_str)
+
+    for c in [
+        "EVALUASI_STATUS",
+        "SURAT_USULAN_STATUS", "SURAT_PERSETUJUAN_STATUS",
+        "SP2BJ_STATUS", "PO_STATUS", "TERBAYAR_STATUS",
+        "SUPPLY_STATUS"
+    ]:
+        show_df[c] = show_df[c].apply(clean_status)
 
     st.dataframe(show_df, use_container_width=True, hide_index=True)
 
@@ -332,16 +321,14 @@ with tab_teknik:
 
     row = df[df["REQUEST_ID"].astype(str) == str(selected_rid)].iloc[0].to_dict()
 
-    # file lampiran: coba ambil dari beberapa tempat
+    # Ambil file lampiran (fallback kalau nyasar)
     files_list = parse_files_any(
         row.get("FILES"),
         row.get("FILES_JSON"),
-        row.get("EVALUASI_STATUS"),  # fallback kalau file nyasar ke kolom ini
+        row.get("EVALUASI_STATUS"),  # kalau ternyata isinya JSON file dari data lama
     )
 
-    # =========================
-    # DETAIL & FORM
-    # =========================
+    # DETAIL INFO
     colA, colB = st.columns([1.2, 1])
 
     with colA:
@@ -365,164 +352,82 @@ with tab_teknik:
                     else:
                         st.markdown(f"- {name}")
 
+    # FORM UPDATE
     with colB:
-        # 1) Evaluasi
         st.markdown("#### 1) Evaluasi Cabang")
-        eval_status = st.selectbox(
-            "Status Evaluasi",
-            STATUS_OPTIONS,
-            index=STATUS_OPTIONS.index(row.get("EVALUASI_STATUS") or "None") if (row.get("EVALUASI_STATUS") or "None") in STATUS_OPTIONS else 0,
-            key="eval_status",
+        eval_status, eval_tgl = status_with_optional_date_ui(
+            "Evaluasi",
+            "eval",
+            row.get("EVALUASI_STATUS", ""),
+            row.get("EVALUASI_TANGGAL", ""),
         )
 
-        eval_tgl_val = parse_date_safe(row.get("EVALUASI_TANGGAL"))
-        if eval_status == "None":
-            eval_tgl = None
-            st.caption("Tanggal Evaluasi: (kosong)")
-        else:
-            eval_tgl = st.date_input(
-                "Tanggal Evaluasi",
-                value=eval_tgl_val or date.today(),
-                key="eval_tgl",
-            )
-
-        # 2) Surat Usulan
         st.markdown("#### 2) Surat Usulan ke Pusat")
-        usulan_status = st.selectbox(
-            "Status Surat Usulan",
-            STATUS_OPTIONS,
-            index=STATUS_OPTIONS.index(row.get("SURAT_USULAN_STATUS") or "None") if (row.get("SURAT_USULAN_STATUS") or "None") in STATUS_OPTIONS else 0,
-            key="usulan_status",
+        usulan_status, usulan_tgl = status_with_optional_date_ui(
+            "Surat Usulan",
+            "usulan",
+            row.get("SURAT_USULAN_STATUS", ""),
+            row.get("SURAT_USULAN_TANGGAL", ""),
         )
-        usulan_tgl_val = parse_date_safe(row.get("SURAT_USULAN_TANGGAL"))
-        if usulan_status == "None":
-            usulan_tgl = None
-            st.caption("Tanggal Surat Usulan: (kosong)")
-        else:
-            usulan_tgl = st.date_input(
-                "Tanggal Surat Usulan",
-                value=usulan_tgl_val or date.today(),
-                key="usulan_tgl",
-            )
 
-        # 3) Surat Persetujuan
         st.markdown("#### 3) Surat Persetujuan Pusat")
-        setuju_status = st.selectbox(
-            "Status Surat Persetujuan",
-            STATUS_OPTIONS,
-            index=STATUS_OPTIONS.index(row.get("SURAT_PERSETUJUAN_STATUS") or "None") if (row.get("SURAT_PERSETUJUAN_STATUS") or "None") in STATUS_OPTIONS else 0,
-            key="setuju_status",
+        setuju_status, setuju_tgl = status_with_optional_date_ui(
+            "Surat Persetujuan",
+            "setuju",
+            row.get("SURAT_PERSETUJUAN_STATUS", ""),
+            row.get("SURAT_PERSETUJUAN_TANGGAL", ""),
         )
-        setuju_tgl_val = parse_date_safe(row.get("SURAT_PERSETUJUAN_TANGGAL"))
-        if setuju_status == "None":
-            setuju_tgl = None
-            st.caption("Tanggal Surat Persetujuan: (kosong)")
-        else:
-            setuju_tgl = st.date_input(
-                "Tanggal Surat Persetujuan",
-                value=setuju_tgl_val or date.today(),
-                key="setuju_tgl",
-            )
 
-    # 4) Administrasi Cabang -> ubah jadi STATUS + TANGGAL (seperti supply)
-    st.markdown("#### 4) Administrasi Cabang")
+    st.markdown("#### 4) Administrasi Cabang (Status + Tanggal)")
     c1, c2, c3 = st.columns(3)
 
-    # SP2BJ
     with c1:
-        st.markdown("**SP2B/J**")
-        sp2bj_status = st.selectbox(
-            "Status SP2B/J",
-            STATUS_OPTIONS,
-            index=STATUS_OPTIONS.index(row.get("SP2BJ_STATUS") or "None") if (row.get("SP2BJ_STATUS") or "None") in STATUS_OPTIONS else 0,
-            key="sp2bj_status",
+        sp2bj_status, sp2bj_tgl = status_with_optional_date_ui(
+            "SP2BJ",
+            "sp2bj",
+            row.get("SP2BJ_STATUS", ""),
+            row.get("SP2BJ_TANGGAL", ""),
         )
-        sp2bj_tgl_val = parse_date_safe(row.get("SP2BJ_TANGGAL"))
-        if sp2bj_status == "None":
-            sp2bj_tgl = None
-            st.caption("Tanggal SP2B/J: (kosong)")
-        else:
-            sp2bj_tgl = st.date_input(
-                "Tanggal SP2B/J",
-                value=sp2bj_tgl_val or date.today(),
-                key="sp2bj_tgl",
-            )
 
-    # PO
     with c2:
-        st.markdown("**PO**")
-        po_status = st.selectbox(
-            "Status PO",
-            STATUS_OPTIONS,
-            index=STATUS_OPTIONS.index(row.get("PO_STATUS") or "None") if (row.get("PO_STATUS") or "None") in STATUS_OPTIONS else 0,
-            key="po_status",
+        po_status, po_tgl = status_with_optional_date_ui(
+            "PO",
+            "po",
+            row.get("PO_STATUS", ""),
+            row.get("PO_TANGGAL", ""),
         )
-        po_tgl_val = parse_date_safe(row.get("PO_TANGGAL"))
-        if po_status == "None":
-            po_tgl = None
-            st.caption("Tanggal PO: (kosong)")
-        else:
-            po_tgl = st.date_input(
-                "Tanggal PO",
-                value=po_tgl_val or date.today(),
-                key="po_tgl",
-            )
 
-    # Terbayar
     with c3:
-        st.markdown("**Terbayar**")
-        terbayar_status = st.selectbox(
-            "Status Terbayar",
-            STATUS_OPTIONS,
-            index=STATUS_OPTIONS.index(row.get("TERBAYAR_STATUS") or "None") if (row.get("TERBAYAR_STATUS") or "None") in STATUS_OPTIONS else 0,
-            key="terbayar_status",
+        terbayar_status, terbayar_tgl = status_with_optional_date_ui(
+            "Terbayar",
+            "terbayar",
+            row.get("TERBAYAR_STATUS", ""),
+            row.get("TERBAYAR_TANGGAL", ""),
         )
-        terbayar_tgl_val = parse_date_safe(row.get("TERBAYAR_TANGGAL"))
-        if terbayar_status == "None":
-            terbayar_tgl = None
-            st.caption("Tanggal Terbayar: (kosong)")
-        else:
-            terbayar_tgl = st.date_input(
-                "Tanggal Terbayar",
-                value=terbayar_tgl_val or date.today(),
-                key="terbayar_tgl",
-            )
 
-    # 5) Supply
     st.markdown("#### 5) Supply Barang")
-    supply_status = st.selectbox(
-        "Status Supply",
-        STATUS_OPTIONS,
-        index=STATUS_OPTIONS.index(row.get("SUPPLY_STATUS") or "None") if (row.get("SUPPLY_STATUS") or "None") in STATUS_OPTIONS else 0,
-        key="supply_status",
+    supply_status, supply_tgl = status_with_optional_date_ui(
+        "Supply",
+        "supply",
+        row.get("SUPPLY_STATUS", ""),
+        row.get("SUPPLY_TANGGAL", ""),
     )
-    supply_tgl_val = parse_date_safe(row.get("SUPPLY_TANGGAL"))
-    if supply_status == "None":
-        supply_tgl = None
-        st.caption("Tanggal Supply: (kosong)")
-    else:
-        supply_tgl = st.date_input(
-            "Tanggal Supply",
-            value=supply_tgl_val or date.today(),
-            key="supply_tgl",
-        )
 
     st.markdown("---")
-
     if st.button("💾 Simpan Update"):
         patch = {
             # evaluasi
             "EVALUASI_STATUS": eval_status,
             "EVALUASI_TANGGAL": iso_or_empty(eval_tgl) if eval_status != "None" else "",
 
-            # surat usulan/persetujuan
+            # surat usulan + persetujuan
             "SURAT_USULAN_STATUS": usulan_status,
             "SURAT_USULAN_TANGGAL": iso_or_empty(usulan_tgl) if usulan_status != "None" else "",
 
             "SURAT_PERSETUJUAN_STATUS": setuju_status,
             "SURAT_PERSETUJUAN_TANGGAL": iso_or_empty(setuju_tgl) if setuju_status != "None" else "",
 
-            # administrasi cabang (status + tanggal)
+            # administrasi cabang
             "SP2BJ_STATUS": sp2bj_status,
             "SP2BJ_TANGGAL": iso_or_empty(sp2bj_tgl) if sp2bj_status != "None" else "",
 
@@ -536,14 +441,14 @@ with tab_teknik:
             "SUPPLY_STATUS": supply_status,
             "SUPPLY_TANGGAL": iso_or_empty(supply_tgl) if supply_status != "None" else "",
 
-            # audit
-            "LAST_UPDATE": now_utc_iso(),
+            # last update
+            "LAST_UPDATE": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z"),
         }
 
         try:
-            res2 = api_update_request(selected_rid, patch)
+            res2 = api_update_request(str(selected_rid), patch)
             if res2.get("ok"):
-                st.success("✅ Update tersimpan. Reload data...")
+                st.success("✅ Update tersimpan.")
                 st.rerun()
             else:
                 st.error(f"Gagal: {res2.get('error')}")
