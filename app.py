@@ -178,18 +178,19 @@ with tab_teknik:
     # =============== mulai dari sini: sudah login ===============
     # Ambil data
     try:
-        res = post_api({"action": "list_requests"})
+        res = post_api({"action": "list_requests", "key": TEKNIK_KEY})
+        st.write("DEBUG RESPONSE:")
+        st.json(res)
+
         if not res.get("ok"):
             st.error(res.get("error"))
             st.stop()
+
         data = res.get("data", [])
     except Exception as e:
         st.error(f"Error ambil data: {e}")
         st.stop()
 
-    if not data:
-        st.info("Belum ada permintaan masuk.")
-        st.stop()
 
     # ... lanjutkan kode monitoring kamu di bawah sini ...
 
