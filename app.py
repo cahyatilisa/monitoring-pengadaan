@@ -13,6 +13,56 @@ TEKNIK_KEY = st.secrets.get("TEKNIK_KEY", "").strip()
 if not WEBAPP_URL:
     st.error("WEBAPP_URL belum diisi di Streamlit Secrets.")
     st.stop()
+import json
+import pandas as pd
+import requests
+import streamlit as st
+from datetime import date
+
+WEBAPP_URL = st.secrets["WEBAPP_URL"]
+TEKNIK_KEY = st.secrets["TEKNIK_KEY"]
+
+def post_api(payload: dict) -> dict:
+    r = requests.post(WEBAPP_URL, json=payload, timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+def api_list_requests() -> pd.DataFrame:
+    res = post_api({"action": "list_requests", "key": TEKNIK_KEY})
+    if not res.get("ok"):
+        raise RuntimeError(res.get("error", "API list_requests gagal"))
+    rows = res.get("rows") or res.get("data") or []
+    df = pd.DataFrame(rows)
+    return df
+
+def api_update_request(request_id: str, fields: dict) -> dict:
+    res = post_api({
+        "action": "update_request",
+        "key": TEKNIK_KEY,
+        "request_id": request_id,
+        "fields": fields
+    })
+    return res
+
+def drive_link_from_value(v: str) -> str:
+    if not v:
+        return ""
+    v = str(v).strip()
+
+    # kalau FILES_JSON kamu ternyata berisi JSON list file, ambil folder/file pertama
+    if v.startswith("[") or v.startswith("{"):
+        try:
+            obj = json.loads(v)
+            if isinstance(obj, list) and len(obj) > 0:
+                # kalau ada folderId atau id file
+                cand = obj[0].get("folderId") or obj[0].get("id")
+                if cand:
+                    v = cand
+        except Exception:
+            pass
+
+    # asumsi paling aman: ini folder ID Drive
+    return f"https://drive.google.com/drive/folders/{v}"
 
 def post_api(payload: dict) -> dict:
     r = requests.post(WEBAPP_URL, json=payload, timeout=60)
@@ -123,7 +173,26 @@ with tab_teknik:
                 st.rerun()
             else:
                 st.error("Password salah.")
+        st.stop()  # <- WAJIB di sini (biar halaman stop kalau belum login)
+
+    # =============== mulai dari sini: sudah login ===============
+    # Ambil data
+    try:
+        res = post_api({"action": "list_requests"})
+        if not res.get("ok"):
+            st.error(res.get("error"))
+            st.stop()
+        data = res.get("data", [])
+    except Exception as e:
+        st.error(f"Error ambil data: {e}")
         st.stop()
+
+    if not data:
+        st.info("Belum ada permintaan masuk.")
+        st.stop()
+
+    # ... lanjutkan kode monitoring kamu di bawah sini ...
+
 
     # Ambil data
     try:
