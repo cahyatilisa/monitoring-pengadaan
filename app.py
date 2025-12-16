@@ -318,84 +318,104 @@ with tab_teknik:
                         st.markdown(f"- [{name}](https://drive.google.com/uc?export=download&id={fid})")
                     else:
                         st.markdown(f"- {name}")
+    from datetime import date
+
+def parse_date_safe(s):
+    """Terima 'YYYY-MM-DD' atau ISO panjang, balikin date atau None."""
+    if not s:
+        return None
+    s = str(s).strip()
+    if s in ["None", "nan", "NaT"]:
+        return None
+    try:
+        return date.fromisoformat(s[:10])
+    except:
+        return None
 
     # INPUT FORM UPDATE
     with colB:
         st.markdown("#### 1) Evaluasi Cabang")
-        eval_status_current = row.get("evaluasi_status") or "None"
-        if eval_status_current not in ["None", "In Process", "Done"]:
-            eval_status_current = "None"
-
         eval_status = st.selectbox(
             "Status Evaluasi",
-            ["None", "In Process", "Done"],
-            index=["None", "In Process", "Done"].index(eval_status_current)
-        )
+            ["None","In Process","Done"],
+            index=["None","In Process","Done"].index(row.get("EVALUASI_STATUS") or "None")
+            if (row.get("EVALUASI_STATUS") or "None") in ["None","In Process","Done"] else 0
+)
 
-        eval_tgl = st.date_input(
-            "Tanggal Evaluasi (isi saat selesai/ada progress)",
-            value=parse_date_value(row.get("evaluasi_tanggal")) or date.today(),
-            key="eval_tgl"
-        )
+eval_tgl_val = parse_date_safe(row.get("EVALUASI_TANGGAL"))
+
+if eval_status == "None":
+    eval_tgl = None
+    st.caption("Tanggal Evaluasi: (kosong, karena status masih None)")
+else:
+    eval_tgl = st.date_input(
+        "Tanggal Evaluasi (isi saat ada progress)",
+        value=eval_tgl_val or date.today(),
+        key="eval_tgl"
+    )
+
 
         st.markdown("#### 2) Surat Usulan ke Pusat")
-        usulan_tgl = st.date_input(
-            "Tanggal Surat Usulan",
-            value=parse_date_value(row.get("surat_usulan_tanggal")) or date.today(),
-            key="usulan_tgl"
-        )
+        usulan_checked = st.checkbox("Surat usulan sudah dibuat", value=bool(parse_date_safe(row.get("SURAT_USULAN_TANGGAL"))), key="usulan_chk")
+        if usulan_checked:
+            usulan_tgl = st.date_input("Tanggal Surat Usulan", value=parse_date_safe(row.get("SURAT_USULAN_TANGGAL")) or date.today(), key="usulan_tgl")
+        else:
+            usulan_tgl = None
+            st.caption("Tanggal Surat Usulan: (kosong)")
 
-        st.markdown("#### 3) Surat Persetujuan Pusat")
-        setuju_tgl = st.date_input(
-            "Tanggal Surat Persetujuan",
-            value=parse_date_value(row.get("surat_persetujuan_tanggal")) or date.today(),
-            key="setuju_tgl"
-        )
+st.markdown("#### 3) Surat Persetujuan Pusat")
+setuju_checked = st.checkbox("Surat persetujuan sudah diterima", value=bool(parse_date_safe(row.get("SURAT_PERSETUJUAN_TANGGAL"))), key="setuju_chk")
+if setuju_checked:
+    setuju_tgl = st.date_input("Tanggal Surat Persetujuan", value=parse_date_safe(row.get("SURAT_PERSETUJUAN_TANGGAL")) or date.today(), key="setuju_tgl")
+else:
+    setuju_tgl = None
+    st.caption("Tanggal Surat Persetujuan: (kosong)")
+
 
     st.markdown("#### 4) Administrasi Cabang")
     c1, c2, c3 = st.columns(3)
 
-    sp2bj_check = to_bool(row.get("sp2bj_check"))
-    po_check = to_bool(row.get("po_check"))
-    terbayar_check = to_bool(row.get("terbayar_check"))
-
     with c1:
-        sp2bj_check_new = st.checkbox("SP2B/J", value=sp2bj_check)
-        sp2bj_tgl = st.date_input(
-            "Tanggal SP2B/J",
-            value=parse_date_value(row.get("sp2bj_tanggal")) or date.today(),
-            key="sp2bj_tgl"
-        )
+        sp2bj_check_new = st.checkbox("SP2B/J", value=to_bool(row.get("SP2BJ_CHECK")), key="sp2bj_chk")
+        if sp2bj_check_new:
+            sp2bj_tgl = st.date_input("Tanggal SP2B/J", value=parse_date_safe(row.get("SP2BJ_TANGGAL")) or date.today(), key="sp2bj_tgl")
+        else:
+            sp2bj_tgl = None
+            st.caption("Tanggal SP2B/J: (kosong)")
+
     with c2:
-        po_check_new = st.checkbox("PO", value=po_check)
-        po_tgl = st.date_input(
-            "Tanggal PO",
-            value=parse_date_value(row.get("po_tanggal")) or date.today(),
-            key="po_tgl"
-        )
+        po_check_new = st.checkbox("PO", value=to_bool(row.get("PO_CHECK")), key="po_chk")
+        if po_check_new:
+            po_tgl = st.date_input("Tanggal PO", value=parse_date_safe(row.get("PO_TANGGAL")) or date.today(), key="po_tgl")
+        else:
+            po_tgl = None
+            st.caption("Tanggal PO: (kosong)")
+
     with c3:
-        terbayar_check_new = st.checkbox("Terbayar", value=terbayar_check)
-        terbayar_tgl = st.date_input(
-            "Tanggal Terbayar",
-            value=parse_date_value(row.get("terbayar_tanggal")) or date.today(),
-            key="terbayar_tgl"
-        )
+        terbayar_check_new = st.checkbox("Terbayar", value=to_bool(row.get("TERBAYAR_CHECK")), key="terbayar_chk")
+        if terbayar_check_new:
+            terbayar_tgl = st.date_input("Tanggal Terbayar", value=parse_date_safe(row.get("TERBAYAR_TANGGAL")) or date.today(), key="terbayar_tgl")
+        else:
+            terbayar_tgl = None
+            st.caption("Tanggal Terbayar: (kosong)")
+
 
     st.markdown("#### 5) Supply Barang")
-    supply_status_current = row.get("supply_status") or "None"
-    if supply_status_current not in ["None", "In Process", "Done"]:
-        supply_status_current = "None"
-
     supply_status = st.selectbox(
         "Status Supply",
-        ["None", "In Process", "Done"],
-        index=["None", "In Process", "Done"].index(supply_status_current)
-    )
+        ["None","In Process","Done"],
+        index=["None","In Process","Done"].index(row.get("SUPPLY_STATUS") or "None")
+        if (row.get("SUPPLY_STATUS") or "None") in ["None","In Process","Done"] else 0
+)
 
-    supply_tgl = st.date_input(
-        "Tanggal Supply (isi saat selesai/ada progress)",
-        value=parse_date_value(row.get("supply_tanggal")) or date.today(),
-        key="supply_tgl"
+    if supply_status == "None":
+        supply_tgl = None
+        st.caption("Tanggal Supply: (kosong, karena status None)")
+    else:
+        supply_tgl = st.date_input(
+            "Tanggal Supply (isi saat ada progress)",
+            value=parse_date_safe(row.get("SUPPLY_TANGGAL")) or date.today(),
+            key="supply_tgl"
     )
 
     st.markdown("---")
