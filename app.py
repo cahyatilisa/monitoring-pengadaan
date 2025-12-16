@@ -400,32 +400,43 @@ with tab_teknik:
 
     st.markdown("---")
     if st.button("💾 Simpan Update"):
-        fields = {
-            "evaluasi_status": eval_status,
-            "evaluasi_tanggal": iso_or_empty(eval_tgl),
+    patch = {
+        "EVALUASI_STATUS": eval_status,
+        "EVALUASI_TANGGAL": iso_or_empty(eval_tgl),
 
-            "surat_usulan_tanggal": iso_or_empty(usulan_tgl),
-            "surat_persetujuan_tanggal": iso_or_empty(setuju_tgl),
+        "SURAT_USULAN_TANGGAL": iso_or_empty(usulan_tgl),
+        "SURAT_PERSETUJUAN_TANGGAL": iso_or_empty(setuju_tgl),
 
-            "sp2bj_check": bool(sp2bj_check_new),
-            "sp2bj_tanggal": iso_or_empty(sp2bj_tgl) if sp2bj_check_new else "",
+        "SP2BJ_CHECK": bool(sp2bj_check_new),
+        "SP2BJ_TANGGAL": iso_or_empty(sp2bj_tgl) if sp2bj_check_new else "",
 
-            "po_check": bool(po_check_new),
-            "po_tanggal": iso_or_empty(po_tgl) if po_check_new else "",
+        "PO_CHECK": bool(po_check_new),
+        "PO_TANGGAL": iso_or_empty(po_tgl) if po_check_new else "",
 
-            "terbayar_check": bool(terbayar_check_new),
-            "terbayar_tanggal": iso_or_empty(terbayar_tgl) if terbayar_check_new else "",
+        "TERBAYAR_CHECK": bool(terbayar_check_new),
+        "TERBAYAR_TANGGAL": iso_or_empty(terbayar_tgl) if terbayar_check_new else "",
 
-            "supply_status": supply_status,
-            "supply_tanggal": iso_or_empty(supply_tgl),
-        }
+        "SUPPLY_STATUS": supply_status,
+        "SUPPLY_TANGGAL": iso_or_empty(supply_tgl),
+    }
 
-        try:
-            res2 = api_update_request(selected_rid, fields)
-            if res2.get("ok"):
-                st.success("✅ Update tersimpan.")
-                st.rerun()
-            else:
-                st.error(f"Gagal: {res2.get('error')}")
-        except Exception as e:
-            st.error(f"Error simpan: {e}")
+    try:
+        # ✅ ini yang penting: parameter update disamakan dengan API
+        res2 = post_api({
+            "action": "update_request",
+            "key": TEKNIK_KEY,
+            "request_id": selected_rid,
+            "fields": patch
+        })
+
+        # (opsional) debug biar kelihatan jawabannya apa
+        # st.write("DEBUG UPDATE:")
+        # st.json(res2)
+
+        if res2.get("ok"):
+            st.success("✅ Update tersimpan.")
+            st.rerun()
+        else:
+            st.error(f"Gagal: {res2.get('error')}")
+    except Exception as e:
+        st.error(f"Error simpan: {e}")
