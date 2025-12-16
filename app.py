@@ -400,24 +400,24 @@ with tab_teknik:
 
     st.markdown("---")
     if st.button("💾 Simpan Update"):
-    patch = {
-        "EVALUASI_STATUS": eval_status,
-        "EVALUASI_TANGGAL": iso_or_empty(eval_tgl),
+        patch = {
+            "EVALUASI_STATUS": eval_status,
+            "EVALUASI_TANGGAL": iso_or_empty(eval_tgl),
 
-        "SURAT_USULAN_TANGGAL": iso_or_empty(usulan_tgl),
-        "SURAT_PERSETUJUAN_TANGGAL": iso_or_empty(setuju_tgl),
+            "SURAT_USULAN_TANGGAL": iso_or_empty(usulan_tgl),
+            "SURAT_PERSETUJUAN_TANGGAL": iso_or_empty(setuju_tgl),
 
-        "SP2BJ_CHECK": bool(sp2bj_check_new),
-        "SP2BJ_TANGGAL": iso_or_empty(sp2bj_tgl) if sp2bj_check_new else "",
+            "SP2BJ_CHECK": bool(sp2bj_check_new),
+            "SP2BJ_TANGGAL": iso_or_empty(sp2bj_tgl) if sp2bj_check_new else "",
 
-        "PO_CHECK": bool(po_check_new),
-        "PO_TANGGAL": iso_or_empty(po_tgl) if po_check_new else "",
+            "PO_CHECK": bool(po_check_new),
+            "PO_TANGGAL": iso_or_empty(po_tgl) if po_check_new else "",
 
-        "TERBAYAR_CHECK": bool(terbayar_check_new),
-        "TERBAYAR_TANGGAL": iso_or_empty(terbayar_tgl) if terbayar_check_new else "",
+            "TERBAYAR_CHECK": bool(terbayar_check_new),
+            "TERBAYAR_TANGGAL": iso_or_empty(terbayar_tgl) if terbayar_check_new else "",
 
-        "SUPPLY_STATUS": supply_status,
-        "SUPPLY_TANGGAL": iso_or_empty(supply_tgl),
+            "SUPPLY_STATUS": supply_status,
+            "SUPPLY_TANGGAL": iso_or_empty(supply_tgl),
     }
 
     try:
