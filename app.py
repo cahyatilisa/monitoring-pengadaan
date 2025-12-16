@@ -179,19 +179,26 @@ with tab_teknik:
     # Ambil data
     try:
         res = post_api({"action": "list_requests", "key": TEKNIK_KEY})
-        st.write("DEBUG RESPONSE:")
-        st.json(res)
 
         if not res.get("ok"):
             st.error(res.get("error"))
             st.stop()
-
+            
         data = res.get("data", [])
+        df = pd.DataFrame(data)
+
     except Exception as e:
         st.error(f"Error ambil data: {e}")
         st.stop()
 
+    if df.empty:
+        st.info("Belum ada permintaan masuk.")
+        st.stop()
 
+    st.subheader("Daftar Permintaan")
+    st.dataframe(df, use_container_width=True)
+
+    
     # ... lanjutkan kode monitoring kamu di bawah sini ...
 
 
