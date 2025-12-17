@@ -37,10 +37,6 @@ if not WEBAPP_URL:
     st.error("WEBAPP_URL belum diisi di Streamlit Secrets.")
     st.stop()
 
-# OPTIONAL: kalau kamu mau User Kapal bisa search status tanpa login teknik,
-# isi READ_KEY di secrets, dan di Apps Script kamu izinkan list_requests pakai READ_KEY.
-READ_KEY = st.secrets.get("READ_KEY", "").strip()
-
 STAGES = [
     ("EVALUASI", "1) Evaluasi Cabang"),
     ("SURAT_USULAN", "2) Surat Usulan ke Pusat"),
@@ -239,58 +235,6 @@ with tab_kapal:
         except Exception as e:
             st.error(f"Error koneksi / API: {e}")
 
-    st.markdown("---")
-    st.subheader("Cek Status (Opsional)")
-    st.caption("Fitur ini hanya aktif kalau kamu isi READ_KEY di Secrets dan Apps Script mengizinkan akses baca.")
-
-    q_public = st.text_input("Cari berdasarkan No. SPBJ / Judul / REQUEST_ID", key="public_search")
-    if q_public:
-        if not READ_KEY:
-            st.info("READ_KEY belum diisi di Secrets, jadi User Kapal belum bisa cek status.")
-        else:
-            try:
-                df_pub = api_list_requests(READ_KEY)
-                if df_pub.empty:
-                    st.info("Belum ada data.")
-                else:
-                    df_pub.columns = [str(c).strip().upper() for c in df_pub.columns]
-
-                    for col in ["REQUEST_ID", "NO_SPBJ_KAPAL", "JUDUL_PERMINTAAN", "TANGGAL_UPLOAD", "FILES_JSON"]:
-                        if col not in df_pub.columns:
-                            df_pub[col] = ""
-
-                    qq = q_public.lower()
-                    df_pub2 = df_pub[
-                        df_pub["REQUEST_ID"].astype(str).str.lower().str.contains(qq, na=False)
-                        | df_pub["NO_SPBJ_KAPAL"].astype(str).str.lower().str.contains(qq, na=False)
-                        | df_pub["JUDUL_PERMINTAAN"].astype(str).str.lower().str.contains(qq, na=False)
-                    ].copy()
-
-                    if df_pub2.empty:
-                        st.info("Tidak ada hasil.")
-                    else:
-                        # ringkas
-                        df_pub2["FILE_1"] = df_pub2["FILES_JSON"].apply(first_file_download_link)
-                        show_pub = pd.DataFrame(
-                            {
-                                "REQUEST_ID": df_pub2["REQUEST_ID"].astype(str),
-                                "TGL_UPLOAD": df_pub2["TANGGAL_UPLOAD"].apply(fmt_ddmmyyyy),
-                                "NO_SPBJ": df_pub2["NO_SPBJ_KAPAL"].astype(str),
-                                "JUDUL": df_pub2["JUDUL_PERMINTAAN"].astype(str),
-                                "FILE": df_pub2["FILE_1"].astype(str),
-                            }
-                        )
-                        st.dataframe(
-                            show_pub,
-                            use_container_width=True,
-                            hide_index=True,
-                            column_config={
-                                "FILE": st.column_config.LinkColumn("Lampiran", display_text="Download"),
-                            },
-                        )
-            except Exception as e:
-                st.error(f"Gagal cek status: {e}")
-
 
 # =========================
 # TAB: USER TEKNIK
@@ -351,7 +295,7 @@ with tab_teknik:
         if d_col not in df.columns:
             df[d_col] = ""
 
-    # AUTO-CLEAN DATA WARISAN: jika status bukan Done => tanggal dikosongkan
+    # AUTO-CLEAN: jika status bukan Done => tanggal dikosongkan
     for code, _label in STAGES:
         s_col = f"{code}_STATUS"
         d_col = f"{code}_TANGGAL"
@@ -412,7 +356,6 @@ with tab_teknik:
 
     row = df[df["REQUEST_ID"].astype(str) == str(selected_rid)].iloc[0].to_dict()
 
-    # detail + lampiran
     colA, colB = st.columns([1.1, 1.2], gap="large")
 
     with colA:
@@ -469,11 +412,10 @@ with tab_teknik:
             else:
                 st.caption(f"Tanggal {label}: (kosong)")
                 patch[s_col] = status
-                patch[d_col] = ""  # kosongkan
+                patch[d_col] = ""
 
         st.markdown("---")
         if st.button("💾 Simpan Update", key="save_update"):
-            # validasi: Done harus punya tanggal (sudah dipastikan ada date_input)
             try:
                 res = api_update_request(str(selected_rid), patch)
                 if res.get("ok"):
