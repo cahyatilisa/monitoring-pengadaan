@@ -10,6 +10,21 @@ import streamlit as st
 # CONFIG
 # =========================
 st.set_page_config(page_title="Monitoring Pengadaan", layout="wide")
+st.markdown("""
+<style>
+/* Besarin font tabel */
+div[data-testid="stDataFrame"] * {
+    font-size: 15px !important;
+}
+
+/* Bungkus teks supaya tidak melebar ke kanan */
+div[data-testid="stDataFrame"] td, 
+div[data-testid="stDataFrame"] th {
+    white-space: normal !important;
+    word-break: break-word !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 WEBAPP_URL = st.secrets.get("WEBAPP_URL", "").strip()
 TEKNIK_KEY = st.secrets.get("TEKNIK_KEY", "").strip()
@@ -32,6 +47,37 @@ STATUS_OPTIONS = ["None", "In Process", "Done"]
 # =========================
 # API HELPERS
 # =========================
+def fmt_ddmmyyyy(x) -> str:
+    """Terima 'YYYY-MM-DD' atau ISO panjang, keluarkan 'DD-MM-YYYY' atau ''."""
+    if not x:
+        return ""
+    s = str(x).strip()
+    if not s or s.lower() == "none":
+        return ""
+    s = s[:10]  # ambil yyyy-mm-dd
+    try:
+        y, m, d = s.split("-")
+        return f"{d}-{m}-{y}"
+    except:
+        return ""
+
+def stage_cell(status, tanggal) -> str:
+    """Gabungkan status + tanggal jadi 1 sel ringkas."""
+    stt = (str(status).strip() if status else "None")
+    if stt.lower() == "none":
+        stt = "None"
+    elif stt.lower() in ["in process", "in_process", "progress", "ongoing"]:
+        stt = "In Process"
+    elif stt.lower() in ["done", "selesai", "completed", "finish", "finished"]:
+        stt = "Done"
+
+    t = fmt_ddmmyyyy(tanggal)
+    if stt == "Done" and t:
+        return f"✅ Done • {t}"
+    if stt == "In Process":
+        return "🟡 In Process"
+    return "⚪ None"
+
 def post_api(payload: dict) -> dict:
     r = requests.post(WEBAPP_URL, json=payload, timeout=60)
     r.raise_for_status()
@@ -223,6 +269,47 @@ with tab_teknik:
     if df.empty:
         st.info("Belum ada permintaan masuk.")
         st.stop()
+    st.markdown("### Daftar Permintaan")
+
+q = st.text_input("🔎 Cari (No SPBJ Kapal / Judul / Request ID)", placeholder="contoh: 123 / pompa / REQ-...")
+df_view = df.copy()
+
+# pastikan kolomnya ada (sesuaikan dengan kolom kamu)
+for col in ["REQUEST_ID","TANGGAL_UPLOAD","NO_SPBJ_KAPAL","JUDUL_PERMINTAAN",
+            "EVALUASI_STATUS","EVALUASI_TANGGAL",
+            "SURAT_USULAN_STATUS","SURAT_USULAN_TANGGAL",
+            "SURAT_PERSETUJUAN_STATUS","SURAT_PERSETUJUAN_TANGGAL",
+            "SP2BJ_STATUS","SP2BJ_TANGGAL",
+            "PO_STATUS","PO_TANGGAL",
+            "TERBAYAR_STATUS","TERBAYAR_TANGGAL",
+            "SUPPLY_STATUS","SUPPLY_TANGGAL"]:
+    if col not in df_view.columns:
+        df_view[col] = ""
+
+if q:
+    qq = q.lower()
+    df_view = df_view[
+        df_view["REQUEST_ID"].astype(str).str.lower().str.contains(qq, na=False)
+        | df_view["NO_SPBJ_KAPAL"].astype(str).str.lower().str.contains(qq, na=False)
+        | df_view["JUDUL_PERMINTAAN"].astype(str).str.lower().str.contains(qq, na=False)
+    ]
+
+show_df = pd.DataFrame({
+    "REQUEST_ID": df_view["REQUEST_ID"].astype(str),
+    "TGL_UPLOAD": df_view["TANGGAL_UPLOAD"].apply(fmt_ddmmyyyy),
+    "NO_SPBJ": df_view["NO_SPBJ_KAPAL"].astype(str),
+    "JUDUL": df_view["JUDUL_PERMINTAAN"].astype(str),
+
+    "1. Evaluasi": df_view.apply(lambda r: stage_cell(r["EVALUASI_STATUS"], r["EVALUASI_TANGGAL"]), axis=1),
+    "2. Usulan": df_view.apply(lambda r: stage_cell(r["SURAT_USULAN_STATUS"], r["SURAT_USULAN_TANGGAL"]), axis=1),
+    "3. Persetujuan": df_view.apply(lambda r: stage_cell(r["SURAT_PERSETUJUAN_STATUS"], r["SURAT_PERSETUJUAN_TANGGAL"]), axis=1),
+    "4. SP2BJ": df_view.apply(lambda r: stage_cell(r["SP2BJ_STATUS"], r["SP2BJ_TANGGAL"]), axis=1),
+    "5. PO": df_view.apply(lambda r: stage_cell(r["PO_STATUS"], r["PO_TANGGAL"]), axis=1),
+    "6. Terbayar": df_view.apply(lambda r: stage_cell(r["TERBAYAR_STATUS"], r["TERBAYAR_TANGGAL"]), axis=1),
+    "7. Supply": df_view.apply(lambda r: stage_cell(r["SUPPLY_STATUS"], r["SUPPLY_TANGGAL"]), axis=1),
+})
+
+st.dataframe(show_df, use_container_width=True, hide_index=True, height=420)
 
     # Normalize kolom ke UPPER agar match header spreadsheet
     df.columns = [str(c).strip().upper() for c in df.columns]
