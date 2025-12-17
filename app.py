@@ -24,12 +24,12 @@ if not TEKNIK_KEY:
     st.warning("TEKNIK_KEY belum diisi di Streamlit Secrets. Tab teknik tidak akan bisa login.")
 
 
-# =========================
-# HELPERS
-# =========================
 STATUS_OPTIONS = ["None", "In Process", "Done"]
 
 
+# =========================
+# HELPERS
+# =========================
 def post_api(payload: dict) -> dict:
     r = requests.post(WEBAPP_URL, json=payload, timeout=60)
     r.raise_for_status()
@@ -37,31 +37,22 @@ def post_api(payload: dict) -> dict:
 
 
 def clean_status(x: Any) -> str:
-    """Normalisasi status jadi: None / In Process / Done."""
     if x is None:
         return "None"
     s = str(x).strip()
-    if s == "" or s.lower() == "none":
+    if s == "" or s.lower() in ["none", "null", "nan", "nat"]:
         return "None"
     s_low = s.lower()
     if s_low in ["in process", "in_progress", "progress", "process", "ongoing"]:
         return "In Process"
     if s_low in ["done", "completed", "finish", "finished", "ok", "yes", "true", "1"]:
         return "Done"
-    # default aman
     if s in STATUS_OPTIONS:
         return s
     return "None"
 
 
 def parse_date_value(x: Any) -> Optional[date]:
-    """
-    Terima:
-    - '2025-12-15T10:00:00.000Z'
-    - '2025-12-15'
-    - '' / None / 'None' / False
-    Return: date atau None
-    """
     if x is None:
         return None
     if isinstance(x, bool):
@@ -69,11 +60,9 @@ def parse_date_value(x: Any) -> Optional[date]:
     if isinstance(x, (int, float)):
         return None
     s = str(x).strip()
-    if s == "" or s.lower() == "none" or s.lower() == "nan" or s.lower() == "nat":
+    if s == "" or s.lower() in ["none", "nan", "nat", "false"]:
         return None
-
-    # ambil 10 karakter pertama (YYYY-MM-DD) untuk ISO datetime panjang
-    s = s[:10]
+    s = s[:10]  # ambil YYYY-MM-DD dari ISO panjang
     try:
         return date.fromisoformat(s)
     except Exception:
@@ -85,73 +74,8 @@ def iso_or_empty(d: Optional[date]) -> str:
 
 
 def fmt_ddmmyyyy(x: Any) -> str:
-    """Format tampilan tanggal jadi dd-mm-yyyy; kalau kosong ya kosong."""
     d = parse_date_value(x)
-    if not d:
-        return ""
-    return d.strftime("%d-%m-%Y")
-
-
-def looks_like_files_json(x: Any) -> bool:
-    """Deteksi string JSON lampiran drive (data warisan)."""
-    if not isinstance(x, str):
-        return False
-    s = x.strip()
-    if not (s.startswith("[") or s.startswith("{")):
-        return False
-    return ("fileId" in s) or ("downloadUrl" in s) or ("viewUrl" in s) or ('"name"' in s)
-
-
-def parse_files_any(*values: Any):
-    """
-    Mencoba membaca daftar file dari beberapa kemungkinan:
-    - list of dicts
-    - string JSON list/dict
-    Return list[dict]
-    """
-    for v in values:
-        if v is None:
-            continue
-        if v == "":
-            continue
-
-        if isinstance(v, list):
-            return v
-
-        if isinstance(v, dict):
-            return [v]
-
-        if isinstance(v, str):
-            s = v.strip()
-            if s.startswith("[") or s.startswith("{"):
-                try:
-                    obj = json.loads(s)
-                    if isinstance(obj, list):
-                        return obj
-                    if isinstance(obj, dict):
-                        return [obj]
-                except Exception:
-                    pass
-
-    return []
-
-
-def api_list_requests() -> pd.DataFrame:
-    res = post_api({"action": "list_requests", "key": TEKNIK_KEY})
-    if not res.get("ok"):
-        raise RuntimeError(res.get("error", "API list_requests gagal"))
-    rows = res.get("data") or res.get("rows") or []
-    df = pd.DataFrame(rows)
-    return df
-
-
-def api_update_request(request_id: str, fields: dict) -> dict:
-    return post_api({
-        "action": "update_request",
-        "key": TEKNIK_KEY,
-        "request_id": request_id,
-        "fields": fields
-    })
+    return d.strftime("%d-%m-%Y") if d else ""
 
 
 def ensure_cols(df: pd.DataFrame, cols: list[str], default: Any = "") -> pd.DataFrame:
@@ -159,6 +83,99 @@ def ensure_cols(df: pd.DataFrame, cols: list[str], default: Any = "") -> pd.Data
         if c not in df.columns:
             df[c] = default
     return df
+
+
+def looks_like_files_json_str(s: str) -> bool:
+    if not isinstance(s, str):
+        return False
+    t = s.strip()
+    if not (t.startswith("[") or t.startswith("{")):
+        return False
+    # indikator kuat file json
+    return ("fileId" in t) or ("downloadUrl" in t) or ("viewUrl" in t) or ('"name"' in t)
+
+
+def parse_files_from_any(v: Any):
+    """Return list[dict] dari v (bisa list, dict, atau string JSON)."""
+    if v is None:
+        return []
+    if v == "":
+        return []
+    if isinstance(v, list):
+        return v
+    if isinstance(v, dict):
+        return [v]
+    if isinstance(v, str):
+        s = v.strip()
+        if s.startswith("[") or s.startswith("{"):
+            try:
+                obj = json.loads(s)
+                if isinstance(obj, list):
+                    return obj
+                if isinstance(obj, dict):
+                    return [obj]
+            except Exception:
+                return []
+    return []
+
+
+def find_files_in_row(row: dict) -> list[dict]:
+    """
+    Cari lampiran dari semua kemungkinan kolom.
+    - Prioritas FILES/FILES_JSON
+    - Kalau kosong, scan semua kolom untuk string JSON yang mengandung fileId/viewUrl/downloadUrl
+    """
+    # 1) prioritas kolom umum
+    for k in ["FILES", "FILES_JSON", "FILESRAW", "EVALUASI_FILES_RAW"]:
+        if k in row:
+            got = parse_files_from_any(row.get(k))
+            if got:
+                return got
+
+    # 2) scan semua value dalam row
+    for _, v in row.items():
+        if isinstance(v, str) and looks_like_files_json_str(v):
+            got = parse_files_from_any(v)
+            if got:
+                return got
+
+    return []
+
+
+# =========================
+# API WRAPPERS (dibuat kompatibel dengan backend apapun)
+# =========================
+def api_list_requests() -> pd.DataFrame:
+    # kirim key + teknik_key agar cocok untuk backend kamu yang beda versi
+    res = post_api({"action": "list_requests", "key": TEKNIK_KEY, "teknik_key": TEKNIK_KEY})
+    if not res.get("ok"):
+        raise RuntimeError(res.get("error", "API list_requests gagal"))
+
+    rows = res.get("data") or res.get("rows") or []
+    return pd.DataFrame(rows)
+
+
+def api_update_request(request_id: str, patch: dict) -> dict:
+    """
+    Kirim payload update dalam 2 gaya sekaligus:
+    - key dan teknik_key
+    - fields dan patch
+    Ditambah: duplikasi key UPPERCASE dan lowercase di patch.
+    """
+    patch2 = {}
+    for k, v in patch.items():
+        patch2[k] = v
+        patch2[k.lower()] = v  # duplikasi lowercase
+
+    payload = {
+        "action": "update_request",
+        "key": TEKNIK_KEY,
+        "teknik_key": TEKNIK_KEY,
+        "request_id": request_id,
+        "fields": patch2,
+        "patch": patch2,
+    }
+    return post_api(payload)
 
 
 # =========================
@@ -250,7 +267,9 @@ with tab_teknik:
                 st.error("Password salah.")
         st.stop()
 
-    # =============== SUDAH LOGIN ===============
+    debug_mode = st.checkbox("Tampilkan debug (response API)", value=False)
+
+    # ===== ambil data =====
     try:
         df = api_list_requests()
     except Exception as e:
@@ -261,34 +280,30 @@ with tab_teknik:
         st.info("Belum ada permintaan masuk.")
         st.stop()
 
-    # Normalisasi: pakai kolom UPPERCASE biar konsisten
+    # Normalisasi kolom ke UPPERCASE supaya konsisten di UI
     df.columns = [str(c).strip().upper() for c in df.columns]
 
     expected_cols = [
         "REQUEST_ID", "TANGGAL_UPLOAD", "NO_SPBJ_KAPAL", "JUDUL_PERMINTAAN",
         "FILES", "FILES_JSON",
-        # Evaluasi
         "EVALUASI_STATUS", "EVALUASI_TANGGAL",
-        # Usulan & Persetujuan
         "SURAT_USULAN_STATUS", "SURAT_USULAN_TANGGAL",
         "SURAT_PERSETUJUAN_STATUS", "SURAT_PERSETUJUAN_TANGGAL",
-        # Admin Cabang: status + tanggal
         "SP2BJ_STATUS", "SP2BJ_TANGGAL",
         "PO_STATUS", "PO_TANGGAL",
         "TERBAYAR_STATUS", "TERBAYAR_TANGGAL",
-        # Supply
         "SUPPLY_STATUS", "SUPPLY_TANGGAL",
         "LAST_UPDATE",
     ]
     df = ensure_cols(df, expected_cols, default="")
 
     # =========================
-    # SIMPAN LAMPIRAN WARISAN
-    # (dulu lampiran nyasar ke EVALUASI_STATUS sebagai JSON string)
+    # SIMPAN LAMPIRAN WARISAN:
+    # kalau dulu lampiran nyasar ke EVALUASI_STATUS
     # =========================
     if "EVALUASI_FILES_RAW" not in df.columns:
         df["EVALUASI_FILES_RAW"] = ""
-    df["EVALUASI_FILES_RAW"] = df["EVALUASI_STATUS"].apply(lambda v: v if looks_like_files_json(v) else "")
+    df["EVALUASI_FILES_RAW"] = df["EVALUASI_STATUS"].apply(lambda v: v if looks_like_files_json_str(v) else "")
 
     # =========================
     # AUTO-CLEAN DATA WARISAN:
@@ -308,7 +323,7 @@ with tab_teknik:
         df.loc[df[s_col] == "None", d_col] = ""
 
     # =========================
-    # TABEL RINGKAS (TAMPILAN)
+    # TABEL RINGKAS
     # =========================
     st.markdown("### Daftar Permintaan")
 
@@ -325,9 +340,8 @@ with tab_teknik:
     ]
     show_df = df[show_cols].copy()
 
-    # format tanggal tampilan
-    date_cols = [c for c in show_cols if c.endswith("_TANGGAL") or c == "TANGGAL_UPLOAD" or c == "LAST_UPDATE"]
-    for c in date_cols:
+    # Format tanggal tampilan
+    for c in [x for x in show_cols if x.endswith("_TANGGAL") or x in ["TANGGAL_UPLOAD", "LAST_UPDATE"]]:
         show_df[c] = show_df[c].apply(fmt_ddmmyyyy)
 
     st.dataframe(show_df, use_container_width=True, hide_index=True)
@@ -340,14 +354,10 @@ with tab_teknik:
 
     row = df[df["REQUEST_ID"].astype(str) == str(selected_rid)].iloc[0].to_dict()
 
-    # Ambil file lampiran (utama dari FILES / FILES_JSON, fallback dari EVALUASI_FILES_RAW)
-    files_list = parse_files_any(
-        row.get("FILES"),
-        row.get("FILES_JSON"),
-        row.get("EVALUASI_FILES_RAW"),
-    )
+    # Lampiran: cari dari semua kemungkinan kolom
+    files_list = find_files_in_row(row)
 
-    # DETAIL INFO
+    # DETAIL
     colA, colB = st.columns([1.2, 1])
 
     with colA:
@@ -371,11 +381,7 @@ with tab_teknik:
                     else:
                         st.markdown(f"- {name}")
 
-    # =========================
-    # FORM INPUT (STATUS + TANGGAL)
-    # =========================
     def status_date_block(title: str, status_key: str, date_key: str, ui_key_prefix: str):
-        """Render 1 blok status+tanggal: jika status None -> tanggal None (kosong)."""
         st.markdown(f"### {title}")
 
         cur_status = clean_status(row.get(status_key))
@@ -407,7 +413,6 @@ with tab_teknik:
 
     st.markdown("---")
 
-    # 4,5,6 dibuat seragam dan sejajar
     c1, c2, c3 = st.columns(3)
     with c1:
         sp2bj_status, sp2bj_tgl = status_date_block("4) SP2BJ", "SP2BJ_STATUS", "SP2BJ_TANGGAL", "sp2bj")
@@ -418,14 +423,10 @@ with tab_teknik:
 
     st.markdown("---")
 
-    # 7 Supply
     supply_status, supply_tgl = status_date_block("7) Supply Barang", "SUPPLY_STATUS", "SUPPLY_TANGGAL", "supply")
 
     st.markdown("---")
 
-    # =========================
-    # SAVE
-    # =========================
     if st.button("💾 Simpan Update", key="btn_save"):
         patch = {
             "EVALUASI_STATUS": eval_status,
@@ -452,15 +453,20 @@ with tab_teknik:
             "LAST_UPDATE": datetime.now().strftime("%Y-%m-%d"),
         }
 
-        # Safety: kalau status None, pastikan tanggal benar-benar kosong
+        # Safety: kalau status None, pastikan tanggal kosong
         for s_col, d_col in pairs:
             if patch.get(s_col) == "None":
                 patch[d_col] = ""
 
         try:
-            res2 = api_update_request(selected_rid, patch)
+            res2 = api_update_request(str(selected_rid), patch)
+
+            if debug_mode:
+                st.write("DEBUG update_request response:")
+                st.json(res2)
+
             if res2.get("ok"):
-                st.success("✅ Update tersimpan.")
+                st.success("✅ Update tersimpan. Reload data...")
                 st.rerun()
             else:
                 st.error(f"Gagal: {res2.get('error')}")
