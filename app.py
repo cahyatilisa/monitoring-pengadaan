@@ -312,7 +312,7 @@ show_df = pd.DataFrame({
 st.dataframe(show_df, use_container_width=True, hide_index=True, height=420)
 
     # Normalize kolom ke UPPER agar match header spreadsheet
-    df.columns = [str(c).strip().upper() for c in df.columns]
+df.columns = [str(c).strip().upper() for c in df.columns]
 
     # kolom wajib minimal
     base_cols = ["REQUEST_ID", "TANGGAL_UPLOAD", "NO_SPBJ_KAPAL", "JUDUL_PERMINTAAN", "FILES_JSON", "LAST_UPDATE"]
