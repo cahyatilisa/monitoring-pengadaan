@@ -9,6 +9,23 @@ import streamlit as st
 # CONFIG + STYLE
 # =========================
 st.set_page_config(page_title="Monitoring Pengadaan", layout="wide")
+st.markdown("""
+<style>
+/* Center untuk st.dataframe */
+div[data-testid="stDataFrame"] div[role="columnheader"],
+div[data-testid="stDataFrame"] div[role="gridcell"]{
+  justify-content: center !important;
+  text-align: center !important;
+}
+
+/* Center untuk st.data_editor */
+div[data-testid="stDataEditor"] div[role="columnheader"],
+div[data-testid="stDataEditor"] div[role="gridcell"]{
+  justify-content: center !important;
+  text-align: center !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 st.markdown(
     """
